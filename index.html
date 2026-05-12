@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#14151f">
+  <title>喷气仙人：爬梯飞升</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%2314151f'/%3E%3Crect x='8' y='5' width='16' height='6' fill='%23ffd35a'/%3E%3Crect x='10' y='11' width='12' height='10' fill='%23f0c8a0'/%3E%3Crect x='7' y='21' width='18' height='7' fill='%2374dbff'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="game-shell" aria-label="喷气仙人：爬梯飞升">
+    <header class="topbar">
+      <h1>喷气仙人：爬梯飞升</h1>
+      <p>长城台阶三千尺，一口仙气冲上天</p>
+    </header>
+
+    <section class="stage-wrap">
+      <canvas id="gameCanvas" width="480" height="720" aria-label="游戏画面"></canvas>
+
+      <div id="overlay" class="overlay">
+        <div class="panel">
+          <div id="overlayKicker" class="kicker">像素修仙试炼</div>
+          <h2 id="overlayTitle">喷气仙人：爬梯飞升</h2>
+          <p id="overlayText">左右移动，按住空格或喷气按钮消耗仙气冲刺。躲开台阶上的离谱障碍，捡道具一路飞升。</p>
+          <button id="startBtn" class="primary-btn" type="button">开始爬梯</button>
+        </div>
+      </div>
+    </section>
+
+    <nav class="touch-controls" aria-label="手机操作按钮">
+      <button class="touch-btn" data-action="left" type="button">左</button>
+      <button class="touch-btn jet" data-action="jet" type="button">喷气</button>
+      <button class="touch-btn" data-action="right" type="button">右</button>
+    </nav>
+  </main>
+
+  <script src="game.js"></script>
+</body>
+</html>
