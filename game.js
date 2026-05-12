@@ -369,10 +369,11 @@ function spawnPeachHazard() {
   state.peachHazards.push({
     type: silhouette ? "silhouette" : "peachZone",
     x: rand(90, W - 90),
-    y: silhouette ? 330 : rand(260, 500),
+    y: silhouette ? -70 : -42,
     w: silhouette ? 54 : 104,
     h: silhouette ? 94 : 58,
-    life: 4.2,
+    vy: silhouette ? rand(96, 132) : rand(76, 112),
+    life: 7.2,
     hit: false,
     phase: rand(0, Math.PI * 2)
   });
@@ -385,7 +386,7 @@ function spawnBossBullet() {
   state.bossBullets.push({
     text,
     x: fromLeft ? -120 : W + 120,
-    y: rand(230, 560),
+    y: rand(PLAYER_Y - 78, PLAYER_Y + 22),
     w: text.length * 16 + 24,
     h: 28,
     vx: fromLeft ? rand(112, 160) : -rand(112, 160),
@@ -396,10 +397,12 @@ function spawnBossBullet() {
 function spawnPeachHeart() {
   state.peachHearts.push({
     x: rand(82, W - 82),
-    y: rand(235, 505),
+    y: -36,
     w: 34,
     h: 34,
-    life: 6,
+    vy: rand(74, 104),
+    drift: rand(-18, 18),
+    life: 9,
     bob: rand(0, Math.PI * 2)
   });
 }
@@ -408,7 +411,8 @@ function updateBossHazards(dt) {
   for (const hazard of state.peachHazards) {
     hazard.life -= dt;
     hazard.phase += dt * 5;
-    hazard.y += Math.sin(hazard.phase) * dt * 10;
+    hazard.y += hazard.vy * dt;
+    hazard.x += Math.sin(hazard.phase) * dt * 18;
     if (!hazard.hit && rectsOverlap(playerRect(), entityRect(hazard))) {
       hazard.hit = true;
       state.stuckTimer = 3;
@@ -417,7 +421,7 @@ function updateBossHazards(dt) {
       burst(state.x, state.y, "#ff9fd1", 18);
     }
   }
-  state.peachHazards = state.peachHazards.filter((h) => h.life > 0);
+  state.peachHazards = state.peachHazards.filter((h) => h.life > 0 && h.y < H + 90);
 }
 
 function updateBossBullets(dt) {
@@ -439,6 +443,8 @@ function updatePeachHearts(dt) {
   for (const heart of state.peachHearts) {
     heart.life -= dt;
     heart.bob += dt * 5;
+    heart.y += heart.vy * dt;
+    heart.x = clamp(heart.x + Math.sin(heart.bob) * heart.drift * dt, 60, W - 60);
     if (!heart.hit && rectsOverlap(playerRect(), entityRect(heart))) {
       heart.hit = true;
       state.peachHeartCount += 1;
@@ -455,7 +461,7 @@ function updatePeachHearts(dt) {
       }
     }
   }
-  state.peachHearts = state.peachHearts.filter((h) => h.life > 0 && !h.hit);
+  state.peachHearts = state.peachHearts.filter((h) => h.life > 0 && h.y < H + 70 && !h.hit);
 }
 
 function spawnObstacle() {
