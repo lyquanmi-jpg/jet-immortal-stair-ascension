@@ -380,16 +380,21 @@ function spawnPeachHazard() {
 }
 
 function spawnBossBullet() {
-  const fromLeft = Math.random() > 0.5;
   const texts = ["回头看一眼", "她说她懂你", "道友别急", "桃花劫来了"];
   const text = texts[Math.floor(Math.random() * texts.length)];
+  const gapW = rand(112, 150);
+  const gapX = rand(64 + gapW / 2, W - 64 - gapW / 2);
   state.bossBullets.push({
     text,
-    x: fromLeft ? -120 : W + 120,
-    y: rand(PLAYER_Y - 78, PLAYER_Y + 22),
-    w: text.length * 16 + 24,
-    h: 28,
-    vx: fromLeft ? rand(112, 160) : -rand(112, 160),
+    x: W / 2,
+    y: -36,
+    w: W,
+    h: 30,
+    gapX,
+    gapW,
+    vy: rand(118, 148),
+    sway: rand(-12, 12),
+    phase: rand(0, Math.PI * 2),
     hit: false
   });
 }
@@ -426,8 +431,12 @@ function updateBossHazards(dt) {
 
 function updateBossBullets(dt) {
   for (const bullet of state.bossBullets) {
-    bullet.x += bullet.vx * dt;
-    if (!bullet.hit && rectsOverlap(playerRect(), entityRect(bullet))) {
+    bullet.y += bullet.vy * dt;
+    bullet.phase += dt * 3.2;
+    bullet.gapX = clamp(bullet.gapX + Math.sin(bullet.phase) * bullet.sway * dt, bullet.gapW / 2 + 36, W - bullet.gapW / 2 - 36);
+    const player = playerRect();
+    const touched = bossBulletRects(bullet).some((rect) => rectsOverlap(player, rect));
+    if (!bullet.hit && touched) {
       bullet.hit = true;
       state.health = clamp(state.health - 9, 0, MAX_HEALTH);
       state.slowTimer = Math.max(state.slowTimer, 0.8);
@@ -436,7 +445,7 @@ function updateBossBullets(dt) {
       burst(state.x, state.y, "#ff7ebd", 12);
     }
   }
-  state.bossBullets = state.bossBullets.filter((b) => b.x > -180 && b.x < W + 180 && !b.hit);
+  state.bossBullets = state.bossBullets.filter((b) => b.y < H + 70 && !b.hit);
 }
 
 function updatePeachHearts(dt) {
@@ -638,6 +647,18 @@ function entityRect(entity) {
     w: entity.w,
     h: entity.h
   };
+}
+
+function bossBulletRects(bullet) {
+  const gapLeft = bullet.gapX - bullet.gapW / 2;
+  const gapRight = bullet.gapX + bullet.gapW / 2;
+  const y = bullet.y - bullet.h / 2;
+  const leftW = Math.max(0, gapLeft);
+  const rightW = Math.max(0, W - gapRight);
+  return [
+    { x: 0, y, w: leftW, h: bullet.h },
+    { x: gapRight, y, w: rightW, h: bullet.h }
+  ].filter((rect) => rect.w > 8);
 }
 
 function rectsOverlap(a, b) {
@@ -882,15 +903,27 @@ function drawPeachHazard(hazard) {
 
 function drawBossBullet(bullet) {
   ctx.save();
-  ctx.translate(Math.round(bullet.x), Math.round(bullet.y));
-  ctx.fillStyle = "rgba(255, 105, 170, 0.85)";
-  ctx.fillRect(-bullet.w / 2, -14, bullet.w, bullet.h);
-  ctx.strokeStyle = "#ffd6eb";
-  ctx.strokeRect(-bullet.w / 2 + 0.5, -13.5, bullet.w - 1, bullet.h - 1);
+  const rects = bossBulletRects(bullet);
+  for (const rect of rects) {
+    ctx.fillStyle = "rgba(255, 105, 170, 0.86)";
+    ctx.fillRect(Math.round(rect.x), Math.round(rect.y), Math.round(rect.w), rect.h);
+    ctx.strokeStyle = "#ffd6eb";
+    ctx.strokeRect(Math.round(rect.x) + 0.5, Math.round(rect.y) + 0.5, Math.round(rect.w) - 1, rect.h - 1);
+  }
+  ctx.fillStyle = "rgba(92, 255, 220, 0.22)";
+  ctx.fillRect(Math.round(bullet.gapX - bullet.gapW / 2), Math.round(bullet.y - bullet.h / 2), Math.round(bullet.gapW), bullet.h);
   ctx.fillStyle = "#fff6c8";
   ctx.font = "bold 15px sans-serif";
   ctx.textAlign = "center";
-  ctx.fillText(bullet.text, 0, 5);
+  for (const rect of rects) {
+    const copies = Math.max(1, Math.ceil(rect.w / 120));
+    for (let i = 0; i < copies; i += 1) {
+      const x = rect.x + rect.w * (i + 0.5) / copies;
+      ctx.fillText(bullet.text, x, bullet.y + 5);
+    }
+  }
+  ctx.fillStyle = "#6affdc";
+  ctx.fillRect(Math.round(bullet.gapX - 18), Math.round(bullet.y - 2), 36, 4);
   ctx.restore();
 }
 
