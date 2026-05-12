@@ -7,16 +7,18 @@ const overlayKicker = document.getElementById("overlayKicker");
 const overlayTitle = document.getElementById("overlayTitle");
 const overlayText = document.getElementById("overlayText");
 const startBtn = document.getElementById("startBtn");
+const settleBtn = document.getElementById("settleBtn");
 
 const W = canvas.width;
 const H = canvas.height;
-const TARGET_HEIGHT = 3000;
+const FIRST_BOSS_HEIGHT = 3000;
 const LANES = [122, 210, 298, 386];
 const PLAYER_Y = 548;
 const PLAYER_W = 34;
 const PLAYER_H = 50;
 const MAX_HEALTH = 100;
 const MAX_QI = 100;
+const BOSS_MAX_HP = 100;
 
 const realms = [
   { name: "炼气", height: 0 },
@@ -24,7 +26,7 @@ const realms = [
   { name: "金丹", height: 1100 },
   { name: "元婴", height: 1700 },
   { name: "化神", height: 2400 },
-  { name: "飞升", height: TARGET_HEIGHT }
+  { name: "飞升", height: FIRST_BOSS_HEIGHT }
 ];
 
 const obstacleDefs = [
@@ -43,7 +45,8 @@ const itemDefs = [
 const keys = {
   left: false,
   right: false,
-  jet: false
+  jet: false,
+  attack: false
 };
 
 let state;
@@ -66,11 +69,23 @@ function resetGame(mode = "running") {
     hitFlash: 0,
     obstacleTimer: 0.65,
     itemTimer: 2.4,
+    nextBossHeight: FIRST_BOSS_HEIGHT,
+    bossDefeatedCount: 0,
+    peachHeartCount: 0,
+    stuckTimer: 0,
+    manlyTimer: 0,
+    attackCooldown: 0,
+    autoAttackTimer: 0,
     message: "",
     messageTimer: 0,
     obstacles: [],
     items: [],
+    swordQi: [],
+    bossBullets: [],
+    peachHazards: [],
+    peachHearts: [],
     particles: [],
+    boss: null,
     clouds: makeClouds(),
     stepChips: makeStepChips(),
     swordAngle: 0
@@ -123,19 +138,56 @@ function titleForHeight(height) {
 
 function startGame() {
   resetGame("running");
+  settleBtn.classList.add("hidden");
+  startBtn.textContent = "开始爬梯";
   overlay.classList.add("hidden");
   cancelAnimationFrame(rafId);
   rafId = requestAnimationFrame(loop);
 }
 
-function endGame(win) {
-  state.mode = win ? "win" : "lose";
+function endGame() {
+  state.mode = "lose";
   overlay.classList.remove("hidden");
-  overlayKicker.textContent = win ? "飞升成功" : "试炼失败";
-  overlayTitle.textContent = win ? "喷气仙人飞升成功！" : titleForHeight(state.height);
-  overlayText.textContent = win
-    ? `你爬到了 ${Math.floor(state.height)} 米，酒葫芦冒蓝火，仙剑自动点赞。`
-    : `本次高度 ${Math.floor(state.height)} 米，境界 ${currentRealm()}。调息三秒，还能再冲一把。`;
+  settleBtn.classList.add("hidden");
+  overlayKicker.textContent = "试炼失败";
+  overlayTitle.textContent = titleForHeight(state.height);
+  overlayText.textContent = `本次高度 ${Math.floor(state.height)} 米，境界 ${currentRealm()}，击败 Boss ${state.bossDefeatedCount} 个。调息三秒，还能再冲一把。`;
+  startBtn.textContent = "再爬一次";
+}
+
+function showBossClearedChoice() {
+  state.mode = "bossCleared";
+  overlay.classList.remove("hidden");
+  settleBtn.classList.remove("hidden");
+  overlayKicker.textContent = "心魔试炼";
+  overlayTitle.textContent = "美色心魔已破";
+  overlayText.textContent = `当前高度 ${Math.floor(state.height)} 米，境界 ${currentRealm()}，已击败 Boss ${state.bossDefeatedCount} 个。继续飞升会进入 3000 米之后的无尽模式。`;
+  startBtn.textContent = "继续飞升";
+  settleBtn.textContent = "见好就收";
+}
+
+function continueAscension() {
+  state.mode = "running";
+  state.boss = null;
+  state.nextBossHeight += FIRST_BOSS_HEIGHT;
+  state.obstacleTimer = 1.2;
+  state.itemTimer = 2.2;
+  state.message = "心魔已破：继续飞升";
+  state.messageTimer = 1.5;
+  settleBtn.classList.add("hidden");
+  overlay.classList.add("hidden");
+  lastTime = performance.now();
+  cancelAnimationFrame(rafId);
+  rafId = requestAnimationFrame(loop);
+}
+
+function settleRun() {
+  state.mode = "settle";
+  overlay.classList.remove("hidden");
+  settleBtn.classList.add("hidden");
+  overlayKicker.textContent = "见好就收";
+  overlayTitle.textContent = "功成身退修士";
+  overlayText.textContent = `结算：高度 ${Math.floor(state.height)} 米，境界 ${currentRealm()}，击败 Boss ${state.bossDefeatedCount} 个，称号「${titleForHeight(state.height)}」。`;
   startBtn.textContent = "再爬一次";
 }
 
@@ -143,7 +195,7 @@ function loop(now) {
   const dt = Math.min(0.033, (now - lastTime) / 1000 || 0);
   lastTime = now;
 
-  if (state.mode === "running") {
+  if (state.mode === "running" || state.mode === "boss") {
     update(dt);
     draw();
     rafId = requestAnimationFrame(loop);
@@ -153,21 +205,29 @@ function loop(now) {
 }
 
 function update(dt) {
-  const jetting = keys.jet && state.qi > 0;
+  const isBossFight = state.mode === "boss";
+  const manly = state.manlyTimer > 0;
+  const stuck = state.stuckTimer > 0;
+  const jetting = keys.jet && (state.qi > 0 || manly);
   const input = (keys.left ? -1 : 0) + (keys.right ? 1 : 0);
-  const targetVx = input * (jetting ? 210 : 158);
+  const baseMoveSpeed = manly ? 245 : stuck ? 62 : 158;
+  const targetVx = input * (jetting ? baseMoveSpeed + 52 : baseMoveSpeed);
 
   state.vx += (targetVx - state.vx) * Math.min(1, dt * 12);
   state.x = clamp(state.x + state.vx * dt, 70, W - 70);
 
   if (jetting) {
-    state.qi = clamp(state.qi - 34 * dt, 0, MAX_QI);
+    if (!manly) state.qi = clamp(state.qi - 34 * dt, 0, MAX_QI);
     spawnJet(dt);
   } else {
     state.qi = clamp(state.qi + 8 * dt, 0, MAX_QI);
   }
 
   if (state.slowTimer > 0) state.slowTimer -= dt;
+  if (state.stuckTimer > 0) state.stuckTimer -= dt;
+  if (state.manlyTimer > 0) state.manlyTimer -= dt;
+  if (state.attackCooldown > 0) state.attackCooldown -= dt;
+  if (state.autoAttackTimer > 0) state.autoAttackTimer -= dt;
   if (state.invincibleTimer > 0) state.invincibleTimer -= dt;
   if (state.hitFlash > 0) state.hitFlash -= dt;
   if (state.messageTimer > 0) state.messageTimer -= dt;
@@ -175,22 +235,34 @@ function update(dt) {
   const realmBonus = 1 + Math.min(0.45, state.height / 8000);
   const jetBoost = jetting ? 2.15 : 1;
   const slowFactor = state.slowTimer > 0 ? 0.55 : 1;
-  const climbSpeed = state.speed * realmBonus * jetBoost * slowFactor;
+  const climbSpeed = isBossFight ? 0 : state.speed * realmBonus * jetBoost * slowFactor;
   state.height += climbSpeed * dt;
   state.scroll = (state.scroll + climbSpeed * dt) % 80;
-  state.swordAngle += dt * (state.invincibleTimer > 0 ? 7.8 : 3.8);
+  state.swordAngle += dt * (state.invincibleTimer > 0 || manly ? 7.8 : 3.8);
 
-  updateSpawns(dt, climbSpeed);
+  if (keys.attack) fireSwordQi();
+  if (manly && state.autoAttackTimer <= 0) {
+    fireSwordQi(true);
+    state.autoAttackTimer = 0.18;
+  }
+
+  if (isBossFight) {
+    updateBossFight(dt);
+  } else {
+    updateSpawns(dt, climbSpeed);
+    if (state.height >= state.nextBossHeight && state.bossDefeatedCount === 0) {
+      enterBossFight();
+    }
+  }
+
   updateEntities(dt, climbSpeed);
+  updateSwordQi(dt);
   updateParticles(dt);
   updateClouds(dt, climbSpeed);
 
-  if (state.height >= TARGET_HEIGHT) {
-    state.height = TARGET_HEIGHT;
-    endGame(true);
-  } else if (state.health <= 0) {
+  if (state.health <= 0) {
     state.health = 0;
-    endGame(false);
+    endGame();
   }
 }
 
@@ -200,7 +272,7 @@ function updateSpawns(dt) {
 
   if (state.obstacleTimer <= 0) {
     spawnObstacle();
-    const difficulty = clamp(state.height / TARGET_HEIGHT, 0, 1);
+    const difficulty = clamp(state.height / FIRST_BOSS_HEIGHT, 0, 1);
     state.obstacleTimer = rand(0.76, 1.24) - difficulty * 0.22;
   }
 
@@ -208,6 +280,182 @@ function updateSpawns(dt) {
     spawnItem();
     state.itemTimer = rand(3.0, 4.8);
   }
+}
+
+function enterBossFight() {
+  state.mode = "boss";
+  state.height = state.nextBossHeight;
+  state.vx = 0;
+  state.obstacles = [];
+  state.items = [];
+  state.bossBullets = [];
+  state.peachHazards = [];
+  state.peachHearts = [];
+  state.peachHeartCount = 0;
+  state.stuckTimer = 0;
+  state.boss = {
+    name: "美色心魔",
+    hp: BOSS_MAX_HP,
+    x: W / 2,
+    y: 154,
+    pulse: 0,
+    peachTimer: 1.0,
+    bulletTimer: 1.55,
+    heartTimer: 2.2,
+    petals: makeBossPetals()
+  };
+  showMessage("美色心魔登场：道心要稳");
+}
+
+function makeBossPetals() {
+  return Array.from({ length: 28 }, () => ({
+    x: rand(34, W - 34),
+    y: rand(70, 330),
+    vx: rand(-18, 18),
+    vy: rand(18, 55),
+    size: rand(4, 9),
+    spin: rand(0, Math.PI * 2)
+  }));
+}
+
+function updateBossFight(dt) {
+  if (!state.boss) return;
+  state.boss.pulse += dt * 4;
+  state.boss.peachTimer -= dt;
+  state.boss.bulletTimer -= dt;
+  state.boss.heartTimer -= dt;
+
+  updateBossPetals(dt);
+  if (state.boss.peachTimer <= 0) {
+    spawnPeachHazard();
+    state.boss.peachTimer = rand(1.35, 2.1);
+  }
+  if (state.boss.bulletTimer <= 0) {
+    spawnBossBullet();
+    state.boss.bulletTimer = rand(1.0, 1.55);
+  }
+  if (state.boss.heartTimer <= 0) {
+    spawnPeachHeart();
+    state.boss.heartTimer = rand(3.0, 4.6);
+  }
+
+  updateBossHazards(dt);
+  updateBossBullets(dt);
+  updatePeachHearts(dt);
+
+  if (state.boss.hp <= 0) {
+    state.boss.hp = 0;
+    state.bossDefeatedCount += 1;
+    burst(state.boss.x, state.boss.y, "#ff9fd1", 42);
+    showBossClearedChoice();
+  }
+}
+
+function updateBossPetals(dt) {
+  for (const p of state.boss.petals) {
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.spin += dt * 5;
+    if (p.y > 360 || p.x < 10 || p.x > W - 10) {
+      p.x = rand(34, W - 34);
+      p.y = rand(40, 110);
+      p.vx = rand(-18, 18);
+    }
+  }
+}
+
+function spawnPeachHazard() {
+  const silhouette = Math.random() > 0.48;
+  state.peachHazards.push({
+    type: silhouette ? "silhouette" : "peachZone",
+    x: rand(90, W - 90),
+    y: silhouette ? 330 : rand(260, 500),
+    w: silhouette ? 54 : 104,
+    h: silhouette ? 94 : 58,
+    life: 4.2,
+    hit: false,
+    phase: rand(0, Math.PI * 2)
+  });
+}
+
+function spawnBossBullet() {
+  const fromLeft = Math.random() > 0.5;
+  const texts = ["回头看一眼", "她说她懂你", "道友别急", "桃花劫来了"];
+  const text = texts[Math.floor(Math.random() * texts.length)];
+  state.bossBullets.push({
+    text,
+    x: fromLeft ? -120 : W + 120,
+    y: rand(230, 560),
+    w: text.length * 16 + 24,
+    h: 28,
+    vx: fromLeft ? rand(112, 160) : -rand(112, 160),
+    hit: false
+  });
+}
+
+function spawnPeachHeart() {
+  state.peachHearts.push({
+    x: rand(82, W - 82),
+    y: rand(235, 505),
+    w: 34,
+    h: 34,
+    life: 6,
+    bob: rand(0, Math.PI * 2)
+  });
+}
+
+function updateBossHazards(dt) {
+  for (const hazard of state.peachHazards) {
+    hazard.life -= dt;
+    hazard.phase += dt * 5;
+    hazard.y += Math.sin(hazard.phase) * dt * 10;
+    if (!hazard.hit && rectsOverlap(playerRect(), entityRect(hazard))) {
+      hazard.hit = true;
+      state.stuckTimer = 3;
+      state.slowTimer = Math.max(state.slowTimer, 1);
+      showMessage("桃花劫：寸步难行 3 秒");
+      burst(state.x, state.y, "#ff9fd1", 18);
+    }
+  }
+  state.peachHazards = state.peachHazards.filter((h) => h.life > 0);
+}
+
+function updateBossBullets(dt) {
+  for (const bullet of state.bossBullets) {
+    bullet.x += bullet.vx * dt;
+    if (!bullet.hit && rectsOverlap(playerRect(), entityRect(bullet))) {
+      bullet.hit = true;
+      state.health = clamp(state.health - 9, 0, MAX_HEALTH);
+      state.slowTimer = Math.max(state.slowTimer, 0.8);
+      state.hitFlash = 0.16;
+      showMessage("回头看弹幕：体力 -9");
+      burst(state.x, state.y, "#ff7ebd", 12);
+    }
+  }
+  state.bossBullets = state.bossBullets.filter((b) => b.x > -180 && b.x < W + 180 && !b.hit);
+}
+
+function updatePeachHearts(dt) {
+  for (const heart of state.peachHearts) {
+    heart.life -= dt;
+    heart.bob += dt * 5;
+    if (!heart.hit && rectsOverlap(playerRect(), entityRect(heart))) {
+      heart.hit = true;
+      state.peachHeartCount += 1;
+      state.qi = clamp(state.qi + 20, 0, MAX_QI);
+      burst(heart.x, heart.y, "#ffd35a", 18);
+      if (state.peachHeartCount >= 3) {
+        state.peachHeartCount = 0;
+        state.stuckTimer = 0;
+        state.slowTimer = 0;
+        state.manlyTimer = 3;
+        showMessage("真男人状态：剑气自动开火");
+      } else {
+        showMessage(`桃子的爱心鼓励：${state.peachHeartCount}/3`);
+      }
+    }
+  }
+  state.peachHearts = state.peachHearts.filter((h) => h.life > 0 && !h.hit);
 }
 
 function spawnObstacle() {
@@ -301,6 +549,68 @@ function handleItem(item) {
   }
 }
 
+function fireSwordQi(force = false) {
+  if (state.mode !== "running" && state.mode !== "boss") return;
+  if (state.attackCooldown > 0 && !force) return;
+  const manly = state.manlyTimer > 0;
+  if (!manly && state.qi < 14) {
+    if (force) return;
+    showMessage("仙气不足：剑气憋回去了");
+    state.attackCooldown = 0.35;
+    return;
+  }
+  if (!manly) state.qi = clamp(state.qi - 14, 0, MAX_QI);
+
+  const angle = state.swordAngle;
+  const side = Math.cos(angle) * 24;
+  state.swordQi.push({
+    x: state.x + side,
+    y: state.y - 34,
+    vx: Math.cos(angle) * 42,
+    vy: -360,
+    w: manly ? 22 : 16,
+    h: manly ? 46 : 34,
+    damage: manly ? 12 : 5,
+    life: 1.4,
+    color: manly ? "#ffd35a" : "#85eaff",
+    hit: false
+  });
+  state.attackCooldown = manly ? 0.16 : 0.42;
+}
+
+function updateSwordQi(dt) {
+  for (const qi of state.swordQi) {
+    qi.x += qi.vx * dt;
+    qi.y += qi.vy * dt;
+    qi.life -= dt;
+
+    for (const obstacle of state.obstacles) {
+      if (!obstacle.remove && rectsOverlap(entityRect(qi), entityRect(obstacle))) {
+        obstacle.remove = true;
+        qi.hit = true;
+        burst(obstacle.x, obstacle.y, qi.color, 10);
+      }
+    }
+
+    if (state.boss && state.mode === "boss" && rectsOverlap(entityRect(qi), bossRect())) {
+      qi.hit = true;
+      state.boss.hp = clamp(state.boss.hp - qi.damage, 0, BOSS_MAX_HP);
+      burst(qi.x, qi.y, qi.color, 10);
+      showMessage(`剑气破妄：心魔 -${qi.damage}`);
+    }
+  }
+  state.swordQi = state.swordQi.filter((qi) => qi.life > 0 && qi.y > -80 && !qi.hit);
+}
+
+function bossRect() {
+  return {
+    x: state.boss.x - 82,
+    y: state.boss.y - 68,
+    w: 164,
+    h: 126
+  };
+}
+
 function showMessage(text) {
   state.message = text;
   state.messageTimer = 1.4;
@@ -383,7 +693,10 @@ function updateClouds(dt, climbSpeed) {
 function draw() {
   drawBackground();
   drawGreatWall();
+  if (state.mode === "boss" || state.mode === "bossCleared") drawBoss();
   drawEntities();
+  drawBossAttacks();
+  drawSwordQi();
   drawParticles();
   drawPlayer();
   drawHud();
@@ -462,6 +775,131 @@ function drawPixelCloud(x, y, w) {
 function drawEntities() {
   for (const obstacle of state.obstacles) drawObstacle(obstacle);
   for (const item of state.items) drawItem(item);
+}
+
+function drawBoss() {
+  if (!state.boss) return;
+  const boss = state.boss;
+  const pulse = Math.sin(boss.pulse) * 7;
+
+  ctx.save();
+  ctx.globalAlpha = 0.36;
+  drawPinkCloud(boss.x, boss.y + 32, 220 + pulse);
+  ctx.globalAlpha = 1;
+
+  for (const p of boss.petals) {
+    ctx.save();
+    ctx.translate(Math.round(p.x), Math.round(p.y));
+    ctx.rotate(p.spin);
+    ctx.fillStyle = "#ffb3d5";
+    ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size);
+    ctx.fillStyle = "#ffe2ef";
+    ctx.fillRect(0, -p.size / 2, p.size, p.size);
+    ctx.restore();
+  }
+
+  ctx.translate(Math.round(boss.x), Math.round(boss.y));
+  ctx.fillStyle = "#f06aa8";
+  ctx.fillRect(-70, -36, 140, 78);
+  ctx.fillStyle = "#ff9fd1";
+  ctx.fillRect(-92, -14, 184, 48);
+  ctx.fillRect(-48, -66, 96, 44);
+  ctx.fillStyle = "#ffcae5";
+  ctx.fillRect(-58, -24, 116, 16);
+  ctx.fillStyle = "#4c2137";
+  ctx.fillRect(-35, -5, 18, 18);
+  ctx.fillRect(17, -5, 18, 18);
+  ctx.fillStyle = "#2b1020";
+  ctx.fillRect(-22, 24, 44, 8);
+  ctx.fillStyle = "#ffd35a";
+  ctx.fillRect(-7, -78, 14, 18);
+  drawTinyLabel("美色心魔", 0, 68);
+  ctx.restore();
+
+  drawBossHp();
+}
+
+function drawBossHp() {
+  const ratio = state.boss ? state.boss.hp / BOSS_MAX_HP : 0;
+  ctx.fillStyle = "rgba(28, 9, 22, 0.78)";
+  ctx.fillRect(76, 102, W - 152, 24);
+  ctx.fillStyle = "#ff5ba8";
+  ctx.fillRect(80, 106, Math.round((W - 160) * ratio), 16);
+  ctx.strokeStyle = "#ffd35a";
+  ctx.strokeRect(79.5, 105.5, W - 159, 17);
+  ctx.fillStyle = "#fff2c8";
+  ctx.font = "bold 13px sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText(`美色心魔 HP ${Math.ceil(state.boss.hp)}/100`, W / 2, 121);
+}
+
+function drawPinkCloud(x, y, w) {
+  const h = w * 0.34;
+  ctx.fillStyle = "#ff7ebd";
+  ctx.fillRect(x - w / 2, y, w, h);
+  ctx.fillStyle = "#ffb3d5";
+  ctx.fillRect(x - w * 0.32, y - h * 0.55, w * 0.34, h);
+  ctx.fillRect(x + w * 0.05, y - h * 0.75, w * 0.32, h * 1.1);
+}
+
+function drawBossAttacks() {
+  for (const hazard of state.peachHazards) drawPeachHazard(hazard);
+  for (const bullet of state.bossBullets) drawBossBullet(bullet);
+  for (const heart of state.peachHearts) drawPeachHeart(heart);
+}
+
+function drawPeachHazard(hazard) {
+  ctx.save();
+  ctx.translate(Math.round(hazard.x), Math.round(hazard.y));
+  ctx.globalAlpha = clamp(hazard.life / 4.2, 0.25, 0.85);
+  if (hazard.type === "silhouette") {
+    ctx.fillStyle = "#2b1020";
+    ctx.fillRect(-14, -36, 28, 26);
+    ctx.fillRect(-22, -10, 44, 46);
+    ctx.fillStyle = "#ff9fd1";
+    ctx.fillRect(-30, -18, 60, 10);
+    ctx.fillRect(-18, 36, 12, 28);
+    ctx.fillRect(6, 36, 12, 28);
+    drawTinyLabel("美女剪影", 0, 82);
+  } else {
+    ctx.fillStyle = "#ff7ebd";
+    ctx.fillRect(-52, -22, 104, 44);
+    ctx.fillStyle = "#ffc1dd";
+    ctx.fillRect(-34, -14, 68, 12);
+    ctx.fillStyle = "#ff5ba8";
+    ctx.fillRect(-14, 7, 28, 10);
+    drawTinyLabel("桃花劫", 0, 46);
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+function drawBossBullet(bullet) {
+  ctx.save();
+  ctx.translate(Math.round(bullet.x), Math.round(bullet.y));
+  ctx.fillStyle = "rgba(255, 105, 170, 0.85)";
+  ctx.fillRect(-bullet.w / 2, -14, bullet.w, bullet.h);
+  ctx.strokeStyle = "#ffd6eb";
+  ctx.strokeRect(-bullet.w / 2 + 0.5, -13.5, bullet.w - 1, bullet.h - 1);
+  ctx.fillStyle = "#fff6c8";
+  ctx.font = "bold 15px sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText(bullet.text, 0, 5);
+  ctx.restore();
+}
+
+function drawPeachHeart(heart) {
+  const y = heart.y + Math.sin(heart.bob) * 5;
+  ctx.save();
+  ctx.translate(Math.round(heart.x), Math.round(y));
+  ctx.fillStyle = "#ff8fbd";
+  ctx.fillRect(-15, -7, 30, 24);
+  ctx.fillRect(-10, -16, 12, 12);
+  ctx.fillRect(2, -16, 12, 12);
+  ctx.fillStyle = "#ffd35a";
+  ctx.fillRect(-5, 1, 10, 8);
+  drawTinyLabel("桃心", 0, 35);
+  ctx.restore();
 }
 
 function drawObstacle(o) {
@@ -558,15 +996,43 @@ function drawParticles() {
   }
 }
 
+function drawSwordQi() {
+  for (const qi of state.swordQi) {
+    ctx.save();
+    ctx.translate(Math.round(qi.x), Math.round(qi.y));
+    ctx.fillStyle = qi.color;
+    ctx.fillRect(-qi.w / 2, -qi.h / 2, qi.w, qi.h);
+    ctx.fillStyle = "#eaffff";
+    ctx.fillRect(-3, -qi.h / 2 - 8, 6, qi.h + 8);
+    ctx.fillStyle = "#ffd35a";
+    ctx.fillRect(-qi.w / 2 - 6, qi.h / 2 - 10, qi.w + 12, 6);
+    ctx.globalAlpha = 0.4;
+    ctx.fillStyle = "#85eaff";
+    ctx.fillRect(-qi.w, -qi.h / 2 + 4, qi.w * 2, 8);
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+}
+
 function drawPlayer() {
   const x = Math.round(state.x);
   const y = Math.round(state.y);
   const invincible = state.invincibleTimer > 0;
+  const manly = state.manlyTimer > 0;
 
-  drawSword(x, y, invincible);
+  drawSword(x, y, invincible || manly);
 
   ctx.save();
   ctx.translate(x, y);
+
+  if (manly) {
+    ctx.globalAlpha = 0.38 + Math.sin(performance.now() / 70) * 0.1;
+    ctx.fillStyle = "#ffd35a";
+    ctx.fillRect(-34, -60, 68, 108);
+    ctx.fillStyle = "#85eaff";
+    ctx.fillRect(-24, -50, 48, 88);
+    ctx.globalAlpha = 1;
+  }
 
   ctx.fillStyle = "#6a371a";
   ctx.fillRect(-25, 2, 20, 32);
@@ -596,7 +1062,7 @@ function drawPlayer() {
   ctx.fillRect(-26, -14, 12, 22);
   ctx.fillRect(14, -14, 12, 22);
 
-  if (keys.jet && state.qi > 0) {
+  if (keys.jet && (state.qi > 0 || manly)) {
     ctx.fillStyle = "#eaffff";
     ctx.fillRect(-8, 36, 16, 10);
     ctx.fillStyle = "#85eaff";
@@ -645,12 +1111,24 @@ function drawHud() {
   ctx.fillStyle = "#ffd35a";
   ctx.font = "bold 20px sans-serif";
   ctx.textAlign = "left";
-  ctx.fillText(`高度 ${Math.floor(state.height)} / ${TARGET_HEIGHT}`, 28, 40);
+  ctx.fillText(`高度 ${Math.floor(state.height)} 米`, 28, 40);
   ctx.textAlign = "right";
   ctx.fillText(currentRealm(), W - 28, 40);
 
   drawBar(28, 54, 190, 14, state.health / MAX_HEALTH, "#ff5d68", "体力");
   drawBar(262, 54, 164, 14, state.qi / MAX_QI, "#74dbff", "仙气");
+
+  if (state.mode === "boss") {
+    ctx.textAlign = "left";
+    ctx.font = "bold 12px sans-serif";
+    ctx.fillStyle = "#ffc1dd";
+    ctx.fillText(`桃心 ${state.peachHeartCount}/3`, 28, 91);
+    if (state.stuckTimer > 0) ctx.fillText(`寸步难行 ${state.stuckTimer.toFixed(1)}s`, 120, 91);
+    if (state.manlyTimer > 0) {
+      ctx.fillStyle = "#ffd35a";
+      ctx.fillText(`真男人 ${state.manlyTimer.toFixed(1)}s`, 262, 91);
+    }
+  }
 
   if (state.messageTimer > 0) {
     ctx.textAlign = "center";
@@ -677,13 +1155,18 @@ function bindKeys() {
   window.addEventListener("keydown", (event) => {
     if (event.code === "ArrowLeft") keys.left = true;
     if (event.code === "ArrowRight") keys.right = true;
+    if (event.code === "KeyJ") {
+      keys.attack = true;
+      event.preventDefault();
+    }
     if (event.code === "Space") {
       keys.jet = true;
       event.preventDefault();
     }
-    if ((event.code === "Enter" || event.code === "Space") && state.mode !== "running") {
+    if ((event.code === "Enter" || event.code === "Space") && state.mode !== "running" && state.mode !== "boss") {
       event.preventDefault();
-      startGame();
+      if (state.mode === "bossCleared") continueAscension();
+      else startGame();
     }
   });
 
@@ -691,6 +1174,7 @@ function bindKeys() {
     if (event.code === "ArrowLeft") keys.left = false;
     if (event.code === "ArrowRight") keys.right = false;
     if (event.code === "Space") keys.jet = false;
+    if (event.code === "KeyJ") keys.attack = false;
   });
 }
 
@@ -700,6 +1184,7 @@ function bindTouchControls() {
     const action = button.dataset.action;
     keys[action] = isDown;
     button.classList.toggle("is-down", isDown);
+    if (action === "attack" && isDown) fireSwordQi();
   };
 
   for (const button of buttons) {
@@ -714,7 +1199,11 @@ function bindTouchControls() {
   }
 }
 
-startBtn.addEventListener("click", startGame);
+startBtn.addEventListener("click", () => {
+  if (state.mode === "bossCleared") continueAscension();
+  else startGame();
+});
+settleBtn.addEventListener("click", settleRun);
 bindKeys();
 bindTouchControls();
 resetGame("menu");

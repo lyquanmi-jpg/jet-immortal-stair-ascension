@@ -130,6 +130,7 @@ canvas {
 }
 
 .primary-btn,
+.secondary-btn,
 .touch-btn {
   border: 0;
   border-radius: 0;
@@ -143,12 +144,33 @@ canvas {
     0 6px 0 #5f3816;
 }
 
-.primary-btn {
+.overlay-actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.primary-btn,
+.secondary-btn {
   min-width: 150px;
   padding: 13px 18px 17px;
 }
 
+.secondary-btn {
+  color: #f5ecd4;
+  background: #4b5266;
+  box-shadow:
+    inset 0 -5px 0 #252b3d,
+    0 6px 0 #151823;
+}
+
+.hidden {
+  display: none !important;
+}
+
 .primary-btn:active,
+.secondary-btn:active,
 .touch-btn.is-down {
   transform: translateY(4px);
   box-shadow:
@@ -160,7 +182,7 @@ canvas {
   width: min(100%, 480px);
   margin: 0 auto;
   display: grid;
-  grid-template-columns: 1fr 1.3fr 1fr;
+  grid-template-columns: 1fr 1.2fr 1.2fr 1fr;
   gap: 10px;
   padding-bottom: env(safe-area-inset-bottom);
 }
@@ -180,6 +202,15 @@ canvas {
     inset 0 -5px 0 #2a8aa5,
     0 6px 0 #164d5d,
     0 0 18px rgba(116, 219, 255, 0.45);
+}
+
+.touch-btn.attack {
+  color: #211503;
+  background: #ffd35a;
+  box-shadow:
+    inset 0 -5px 0 #b67a1d,
+    0 6px 0 #5f3816,
+    0 0 18px rgba(255, 211, 90, 0.35);
 }
 
 @media (min-width: 780px) {

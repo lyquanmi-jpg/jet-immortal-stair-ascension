@@ -23,7 +23,10 @@
           <div id="overlayKicker" class="kicker">像素修仙试炼</div>
           <h2 id="overlayTitle">喷气仙人：爬梯飞升</h2>
           <p id="overlayText">左右移动，按住空格或喷气按钮消耗仙气冲刺。躲开台阶上的离谱障碍，捡道具一路飞升。</p>
-          <button id="startBtn" class="primary-btn" type="button">开始爬梯</button>
+          <div class="overlay-actions">
+            <button id="startBtn" class="primary-btn" type="button">开始爬梯</button>
+            <button id="settleBtn" class="secondary-btn hidden" type="button">见好就收</button>
+          </div>
         </div>
       </div>
     </section>
@@ -31,6 +34,7 @@
     <nav class="touch-controls" aria-label="手机操作按钮">
       <button class="touch-btn" data-action="left" type="button">左</button>
       <button class="touch-btn jet" data-action="jet" type="button">喷气</button>
+      <button class="touch-btn attack" data-action="attack" type="button">剑气</button>
       <button class="touch-btn" data-action="right" type="button">右</button>
     </nav>
   </main>
